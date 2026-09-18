@@ -11,4 +11,9 @@ var (
 	ErrReviewRole        = errors.New("reviewer or admin role is required to finalize a priority")
 	ErrSeparationOfDuty  = errors.New("priority preparer cannot approve the same decision")
 	ErrNotDecisionOwner  = errors.New("only the preparer may edit this draft decision")
+
+	ErrDefectNotVerified    = errors.New("defect must be verified before a disposition advice is generated")
+	ErrBridgeLinkMissing    = errors.New("verified defect has no linked bridge record")
+	ErrInspectionIncomplete = errors.New("latest inspection round has not reached a conclusion; no advice can be generated")
+	ErrBridgeNotDisposable  = errors.New("bridge is not in a state that permits disposition advice")
 )

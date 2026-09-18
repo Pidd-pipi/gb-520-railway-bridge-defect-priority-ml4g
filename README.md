@@ -37,11 +37,14 @@ docker compose down -v --remove-orphans
 | 检查批次 | `InspectionRound` | `/api/inspections` | planned, running, review, completed |
 | 缺陷发现 | `DefectFinding` | `/api/defects` | new, verified, monitoring, mitigated, closed |
 | 优先级决定 | `PriorityDecision` | `/api/priorities` | draft → observe/restrict/urgent（终态） |
+| 缺陷处置优先级建议 | `DispositionAdvice` + `DispositionSourceSnapshot` | `/api/disposition-advices` | generated（核验时一次定稿） |
 
 - JWT 登录和 viewer/operator/reviewer/admin 四级 RBAC，后端路由与前端守卫、导航和按钮保持一致。
 - 所有状态变化使用乐观锁并写入审计日志；审计查询仅 reviewer/admin 可见。
 - 优先级决定的每次创建、草稿更新和定稿均追加不可变版本，保留证据、状态、操作者、request ID 和完整快照。
 - 优先级只能由不同于拟制人的 reviewer/admin 定稿；observe/restrict/urgent 均为不可覆盖终态。
+- 复核员核验缺陷后可生成处置优先级建议：按桥梁状态、缺陷等级（general/serious）和最近检查批次结论（completed）在同一事务中锁定处置级别与来源快照；严重缺陷在桥梁限行（restricted/closed）后升级为 urgent，严重缺陷在 active 桥梁为 restrict，一般缺陷始终 observe。
+- 同一缺陷重复核验只保留第一份建议（`defect_id` 唯一索引 + 生成事务先查后建）；检查批次未出结论、缺陷未核验或缺桥梁关联均返回 422 且不写任何行；建议与快照同事务写入/删除，不留半条数据。
 - 请求 ID、结构化日志、全局错误映射和 Redis 分布式限流。
 - 提供脱敏运行配置、当前会话、审计汇总和单实体审计历史接口。
 - 业务工作台支持查询、新建、状态推进、风险标识及操作审计查看。
@@ -118,12 +121,16 @@ cd .. && docker compose config --quiet
 
 `PriorityDecisionRevision` 位于 `backend/internal/model/priority_decision.go`，与主记录在同一事务写入；查询 `/api/priorities` 或 `/api/priorities/:id` 时按版本升序返回 `revisions`。
 
+`DispositionSourceSnapshot` 位于 `backend/internal/model/disposition_source_snapshot.go`，与 `DispositionAdvice` 在同一事务写入；查询 `/api/disposition-advices` 或 `/api/disposition-advices/:id` 时回读 `snapshot`（含桥梁/缺陷/批次状态、版本号和完整 JSON payload）。生成接口为 `POST /api/disposition-advices/generate`（reviewer/admin），请求体仅接受 `defectId`，处置级别完全由服务端规则解析。
+
 ## 共享枚举位置
 
 | 枚举 | 值 | 前后端出现位置 |
 |---|---|---|
 | `DefectState` | `new, verified, monitoring, mitigated, closed` | `backend/internal/constants/status.go`、`frontend/src/types/status.ts` |
 | `PriorityLevel` | `observe, restrict, urgent` | `backend/internal/constants/status.go`、`frontend/src/types/status.ts` |
+| `DefectGradeClass` | `general, serious` | `backend/internal/constants/status.go`、`frontend/src/types/status.ts` |
+| `DispositionAdviceState` | `generated` | `backend/internal/constants/status.go`、`frontend/src/types/disposition-advice.ts` |
 
 每个实体自己的完整迁移图同样位于 `backend/internal/constants/status.go`；页面使用的状态列表位于 `frontend/src/types/status.ts`。修改状态时必须同步两处并更新对应服务测试。
 

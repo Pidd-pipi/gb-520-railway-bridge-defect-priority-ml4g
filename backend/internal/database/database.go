@@ -82,6 +82,8 @@ func migrate(db *gorm.DB) error {
 		&model.DefectFinding{},
 		&model.PriorityDecision{},
 		&model.PriorityDecisionRevision{},
+		&model.DispositionAdvice{},
+		&model.DispositionSourceSnapshot{},
 	)
 }
 
@@ -119,6 +121,10 @@ func Seed(ctx context.Context, db *gorm.DB) error {
 	}
 
 	if err := seedPriorityDecision(ctx, db); err != nil {
+		return err
+	}
+
+	if err := seedDispositionAdvice(ctx, db); err != nil {
 		return err
 	}
 
@@ -245,6 +251,70 @@ func seedPriorityDecision(ctx context.Context, db *gorm.DB) error {
 				})
 			}
 			if err := tx.Create(&revisions).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func seedDispositionAdvice(ctx context.Context, db *gorm.DB) error {
+	var count int64
+	if err := db.WithContext(ctx).Model(&model.DispositionAdvice{}).Count(&count).Error; err != nil || count > 0 {
+		return err
+	}
+	var bridges []model.BridgeAsset
+	if err := db.WithContext(ctx).Order("id ASC").Find(&bridges).Error; err != nil {
+		return err
+	}
+	var inspections []model.InspectionRound
+	if err := db.WithContext(ctx).Order("id ASC").Find(&inspections).Error; err != nil {
+		return err
+	}
+	var defects []model.DefectFinding
+	if err := db.WithContext(ctx).Order("id ASC").Find(&defects).Error; err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	samples := []struct {
+		level string
+		grade string
+		risk  string
+	}{
+		{level: "observe", grade: "general", risk: "low"},
+		{level: "urgent", grade: "serious", risk: "critical"},
+		{level: "observe", grade: "general", risk: "medium"},
+	}
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for index, sample := range samples {
+			if index >= len(bridges) || index >= len(defects) || index >= len(inspections) {
+				break
+			}
+			bridge := bridges[index]
+			defect := defects[index]
+			inspection := inspections[index]
+			advice := model.DispositionAdvice{
+				Code: fmt.Sprintf("DA-%03d", index+1), Status: model.DispositionAdviceInitialStatus,
+				DefectID: defect.ID, DefectCode: defect.Code, BridgeID: bridge.ID, BridgeCode: bridge.Code,
+				InspectionRoundID: inspection.ID, InspectionCode: inspection.Code,
+				DefectGrade: sample.grade, RiskLevel: sample.risk, BridgeState: bridge.Status,
+				DispositionLevel: sample.level, Reason: "演示数据：来源快照在建议生成时一次性锁定",
+				ReviewedBy: "reviewer", RequestID: fmt.Sprintf("seed-DA-%03d", index+1), Version: 1,
+				CreatedAt: now, UpdatedAt: now,
+			}
+			if err := tx.Create(&advice).Error; err != nil {
+				return err
+			}
+			payload := fmt.Sprintf(`{"defectCode":%q,"bridgeCode":%q,"inspectionCode":%q,"defectGrade":%q}`,
+				defect.Code, bridge.Code, inspection.Code, sample.grade)
+			snapshot := model.DispositionSourceSnapshot{
+				DispositionAdviceID: advice.ID, BridgeState: bridge.Status, BridgeStatus: bridge.Status,
+				BridgeVersion: bridge.Version, DefectState: "verified", DefectStatus: defect.Status,
+				DefectGrade: sample.grade, DefectRiskLevel: sample.risk, DefectVersion: defect.Version,
+				InspectionStatus: inspection.Status, InspectionVersion: inspection.Version,
+				Payload: payload, CreatedAt: now,
+			}
+			if err := tx.Create(&snapshot).Error; err != nil {
 				return err
 			}
 		}
