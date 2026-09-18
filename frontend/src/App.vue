@@ -10,6 +10,7 @@ const navigation = computed(() => [
 	{ to: '/inspections', label: '检查批次', visible: true },
 	{ to: '/defects', label: '缺陷发现', visible: true },
 	{ to: '/priorities', label: '优先级决定', visible: true },
+	{ to: '/handling-advices', label: '处置建议', visible: true },
 	{ to: '/audit', label: '审计记录', visible: canAtLeast('reviewer') },
 ].filter((item) => item.visible));
 function signOut() { logout(); void router.push('/login'); }

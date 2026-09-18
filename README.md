@@ -37,11 +37,17 @@ docker compose down -v --remove-orphans
 | 检查批次 | `InspectionRound` | `/api/inspections` | planned, running, review, completed |
 | 缺陷发现 | `DefectFinding` | `/api/defects` | new, verified, monitoring, mitigated, closed |
 | 优先级决定 | `PriorityDecision` | `/api/priorities` | draft → observe/restrict/urgent（终态） |
+| 处置优先级建议 | `DefectHandlingAdvice` | `/api/handling-advices` | 核验后 issued（一缺陷仅一份，不可重复） |
 
 - JWT 登录和 viewer/operator/reviewer/admin 四级 RBAC，后端路由与前端守卫、导航和按钮保持一致。
 - 所有状态变化使用乐观锁并写入审计日志；审计查询仅 reviewer/admin 可见。
 - 优先级决定的每次创建、草稿更新和定稿均追加不可变版本，保留证据、状态、操作者、request ID 和完整快照。
 - 优先级只能由不同于拟制人的 reviewer/admin 定稿；observe/restrict/urgent 均为不可覆盖终态。
+- **处置优先级建议**：复核员核验缺陷（`POST /api/handling-advices/generate`，仅 reviewer/admin）时，在同一数据库事务内锁定桥梁、缺陷与最近检查批次，按「桥梁状态 + 缺陷等级 + 检查结论」推导处置级别，并把三份来源记录冻结为 `DefectAdviceSnapshot`：
+  - 一般缺陷（low/medium）保持观察（observe）；严重缺陷（high/critical）在桥梁通行时建议限行（restrict），桥梁限行/封闭（restricted/closed）后升级为立即处置（urgent）。
+  - 检查批次未完成（无结论）、缺陷未核验或缺桥梁/批次关联时一律不生成建议，且事务回滚不留半条数据。
+  - 同一缺陷重复核验幂等返回同一份建议（首次 201、重复 200）；行锁（Postgres/MySQL `FOR UPDATE` + 可重复读）保证桥梁或检查批次并发变化时不混用新旧状态。
+  - 建议、快照、审计在同一事务原子写入；唯一索引 `defect_id` 兜底并发竞争。
 - 请求 ID、结构化日志、全局错误映射和 Redis 分布式限流。
 - 提供脱敏运行配置、当前会话、审计汇总和单实体审计历史接口。
 - 业务工作台支持查询、新建、状态推进、风险标识及操作审计查看。
@@ -106,7 +112,7 @@ cd .. && docker compose config --quiet
 │   ├── api/                        # 按实体拆分的 API
 │   ├── components/common/          # 共享业务组件
 │   ├── hooks/                      # 认证与分页 hooks
-│   ├── pages/                      # 五个路由页面
+│   ├── pages/                      # 六个路由页面（含处置建议工作台）
 │   ├── router/                     # 路由配置
 │   ├── stores/                     # 按实体拆分的状态仓库
 │   ├── types/                      # 共享类型与枚举
@@ -124,6 +130,10 @@ cd .. && docker compose config --quiet
 |---|---|---|
 | `DefectState` | `new, verified, monitoring, mitigated, closed` | `backend/internal/constants/status.go`、`frontend/src/types/status.ts` |
 | `PriorityLevel` | `observe, restrict, urgent` | `backend/internal/constants/status.go`、`frontend/src/types/status.ts` |
+| `DefectGrade` | `general, severe` | `backend/internal/constants/handling_advice.go`、`frontend/src/types/status.ts` |
+| `HandlingLevel` | `observe, restrict, urgent` | `backend/internal/constants/handling_advice.go`、`frontend/src/types/handling-advice.ts` |
+
+建议的来源快照实体 `DefectAdviceSnapshot` 位于 `backend/internal/model/handling_advice.go`，与建议主记录在同一事务写入；查询 `/api/handling-advices` 或 `/api/handling-advices/:id` 时随建议返回 `snapshot`（桥梁、缺陷、检查批次三份冻结 JSON 及锁定时的状态）。
 
 每个实体自己的完整迁移图同样位于 `backend/internal/constants/status.go`；页面使用的状态列表位于 `frontend/src/types/status.ts`。修改状态时必须同步两处并更新对应服务测试。
 

@@ -4,6 +4,11 @@ export type DefectState = 'new' | 'verified' | 'monitoring' | 'mitigated' | 'clo
 export const ALL_DEFECT_STATE: readonly DefectState[] = ['new', 'verified', 'monitoring', 'mitigated', 'closed'];
 export type PriorityLevel = 'observe' | 'restrict' | 'urgent';
 export const ALL_PRIORITY_LEVEL: readonly PriorityLevel[] = ['observe', 'restrict', 'urgent'];
+// Mirrored from backend/internal/constants/handling_advice.go.
+export type DefectGrade = 'general' | 'severe';
+export const ALL_DEFECT_GRADE: readonly DefectGrade[] = ['general', 'severe'];
+export type HandlingLevel = 'observe' | 'restrict' | 'urgent';
+export const ALL_HANDLING_LEVEL: readonly HandlingLevel[] = ['observe', 'restrict', 'urgent'];
 
 export const ENTITY_CONFIGS: readonly EntityConfig[] = [
   { key: 'bridgeAsset', path: 'bridges', label: '桥梁资产', statuses: ['active', 'restricted', 'closed', 'retired'] as const },

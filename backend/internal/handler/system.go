@@ -19,12 +19,13 @@ type SystemHandler struct {
 	inspectionRound  service.InspectionRoundService
 	defectFinding    service.DefectFindingService
 	priorityDecision service.PriorityDecisionService
+	handlingAdvice   service.HandlingAdviceService
 	db               *gorm.DB
 	redis            *redis.Client
 }
 
-func NewSystemHandler(security service.SecurityService, bridgeAsset service.BridgeAssetService, inspectionRound service.InspectionRoundService, defectFinding service.DefectFindingService, priorityDecision service.PriorityDecisionService, db *gorm.DB, redisClient *redis.Client) *SystemHandler {
-	return &SystemHandler{security: security, bridgeAsset: bridgeAsset, inspectionRound: inspectionRound, defectFinding: defectFinding, priorityDecision: priorityDecision, db: db, redis: redisClient}
+func NewSystemHandler(security service.SecurityService, bridgeAsset service.BridgeAssetService, inspectionRound service.InspectionRoundService, defectFinding service.DefectFindingService, priorityDecision service.PriorityDecisionService, handlingAdvice service.HandlingAdviceService, db *gorm.DB, redisClient *redis.Client) *SystemHandler {
+	return &SystemHandler{security: security, bridgeAsset: bridgeAsset, inspectionRound: inspectionRound, defectFinding: defectFinding, priorityDecision: priorityDecision, handlingAdvice: handlingAdvice, db: db, redis: redisClient}
 }
 
 func (h *SystemHandler) Login(c *gin.Context) {
@@ -89,6 +90,13 @@ func (h *SystemHandler) Overview(c *gin.Context) {
 		return
 	}
 	result["priorities"] = priorityDecisionCounts
+
+	handlingAdviceCounts, err := h.handlingAdvice.LevelCounts(ctx)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	result["handlingAdvices"] = handlingAdviceCounts
 
 	util.OK(c, result)
 }

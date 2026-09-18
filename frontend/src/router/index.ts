@@ -3,6 +3,7 @@ import BridgeAssetPage from '../pages/BridgeAssetPage.vue';
 import InspectionRoundPage from '../pages/InspectionRoundPage.vue';
 import DefectFindingPage from '../pages/DefectFindingPage.vue';
 import PriorityDecisionPage from '../pages/PriorityDecisionPage.vue';
+import HandlingAdvicePage from '../pages/HandlingAdvicePage.vue';
 import AuditPage from '../pages/AuditPage.vue';
 import LoginPage from '../pages/LoginPage.vue';
 import { loadSession } from '../api/client';
@@ -15,6 +16,7 @@ export const router = createRouter({ history: createWebHistory(), routes: [
 	{ path: '/inspections', component: InspectionRoundPage, meta: { minimumRole: 'viewer' } },
 	{ path: '/defects', component: DefectFindingPage, meta: { minimumRole: 'viewer' } },
 	{ path: '/priorities', component: PriorityDecisionPage, meta: { minimumRole: 'viewer' } },
+	{ path: '/handling-advices', component: HandlingAdvicePage, meta: { minimumRole: 'viewer' } },
 	{ path: '/audit', component: AuditPage, meta: { minimumRole: 'reviewer' } },
 ] });
 

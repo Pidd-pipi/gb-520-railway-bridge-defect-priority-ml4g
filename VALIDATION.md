@@ -1,8 +1,17 @@
 # 验收记录
 
-验收日期：2026-08-22
+## 处置优先级建议模块（2026-09-18）
 
-## 静态质量
+从零新增「缺陷处置优先级建议」模块并完成验证：
+
+- `go test ./...`、`go test -race -count=1 ./...`、`go vet ./...`、`go build ./...`：通过。
+- `npm run typecheck`、`npm run build`：通过。
+- 新增服务层测试 7 组、常量测试 2 组，覆盖：一般缺陷 observe、严重缺陷 restrict、限行后 urgent 升级、检查未出结论/缺陷未核验/缺关联记录拒绝、来源快照三要素、重复核验幂等、16 并发只生成一份、桥梁并发变更快照不串状态、写入失败整体回滚。
+- SQLite 真实服务端到端（reviewer/operator/viewer）：种子建议规则正确（DF-001 observe、DF-002 urgent）；重复核验返回 200 且建议、request ID、冻结快照不变；最近批次 planned/review 时核验返回 422，批次完成后 severe+active → restrict，桥梁随后限行再次核验仍返回冻结的 restrict；operator/viewer POST 403、viewer GET 200；筛选与详情回读、`overview.handlingAdvices`、verify 审计均正确。
+- 前端组件渲染冒烟（`npx vite-node frontend/scripts/ssr-smoke.mjs`）12 项通过；store↔真实后端集成冒烟（`npx vite-node frontend/scripts/store-smoke.mjs`）14 项通过，覆盖 403/201/200、幂等、筛选、快照回读。
+- 运行环境无 root 权限安装 Chromium 系统库，未做浏览器点击验证；页面已由 Vue 组件级渲染、Vite 模块编译与 store 集成覆盖。
+
+## 静态质量（2026-08-22）
 
 - `go test ./...`：通过。
 - `go test -race ./...`：通过。

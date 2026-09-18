@@ -7,7 +7,10 @@ import (
 	"time"
 
 	"github.com/blueship581/railway-bridge-defect-priority/backend/internal/config"
+	"github.com/blueship581/railway-bridge-defect-priority/backend/internal/dto"
 	"github.com/blueship581/railway-bridge-defect-priority/backend/internal/model"
+	"github.com/blueship581/railway-bridge-defect-priority/backend/internal/repository"
+	"github.com/blueship581/railway-bridge-defect-priority/backend/internal/service"
 	"github.com/glebarez/sqlite"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
@@ -82,6 +85,8 @@ func migrate(db *gorm.DB) error {
 		&model.DefectFinding{},
 		&model.PriorityDecision{},
 		&model.PriorityDecisionRevision{},
+		&model.DefectHandlingAdvice{},
+		&model.DefectAdviceSnapshot{},
 	)
 }
 
@@ -122,6 +127,10 @@ func Seed(ctx context.Context, db *gorm.DB) error {
 		return err
 	}
 
+	if err := seedHandlingAdvice(ctx, db); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -159,20 +168,20 @@ func seedInspectionRound(ctx context.Context, db *gorm.DB) error {
 	now := time.Now().UTC()
 	items := []model.InspectionRound{
 
-		{BaseModel: model.BaseModel{Code: "IR-001", Name: "检查批次示例一", Status: "planned", Version: 1,
+		{BaseModel: model.BaseModel{Code: "IR-001", Name: "检查批次示例一", Status: "completed", Version: 1,
 			Description: "用于启动验证和主要流程演示的检查批次记录"}, Facility: "铁路桥梁缺陷处置优先级区域1", Owner: "运行一组",
 			Category: "常规", RiskLevel: "low", MetricValue: 12.5, MetricUnit: "unit",
-			EffectiveAt: now.Add(0 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "REL-520-01"},
+			EffectiveAt: now.Add(0 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "BA-001"},
 
-		{BaseModel: model.BaseModel{Code: "IR-002", Name: "检查批次示例二", Status: "running", Version: 1,
+		{BaseModel: model.BaseModel{Code: "IR-002", Name: "检查批次示例二", Status: "completed", Version: 1,
 			Description: "用于启动验证和主要流程演示的检查批次记录"}, Facility: "铁路桥梁缺陷处置优先级区域2", Owner: "质量复核组",
 			Category: "重点", RiskLevel: "medium", MetricValue: 25.0, MetricUnit: "%",
-			EffectiveAt: now.Add(3 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "REL-520-02"},
+			EffectiveAt: now.Add(3 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "BA-002"},
 
 		{BaseModel: model.BaseModel{Code: "IR-003", Name: "检查批次示例三", Status: "review", Version: 1,
-			Description: "用于启动验证和主要流程演示的检查批次记录"}, Facility: "铁路桥梁缺陷处置优先级区域3", Owner: "安全主管组",
+			Description: "复核中、尚未出结论的检查批次"}, Facility: "铁路桥梁缺陷处置优先级区域3", Owner: "安全主管组",
 			Category: "复核", RiskLevel: "high", MetricValue: 37.5, MetricUnit: "score",
-			EffectiveAt: now.Add(6 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "REL-520-03"},
+			EffectiveAt: now.Add(6 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "BA-003"},
 	}
 	return db.WithContext(ctx).Create(&items).Error
 }
@@ -185,20 +194,20 @@ func seedDefectFinding(ctx context.Context, db *gorm.DB) error {
 	now := time.Now().UTC()
 	items := []model.DefectFinding{
 
-		{BaseModel: model.BaseModel{Code: "DF-001", Name: "缺陷发现示例一", Status: "new", Version: 1,
-			Description: "用于启动验证和主要流程演示的缺陷发现记录"}, Facility: "铁路桥梁缺陷处置优先级区域1", Owner: "运行一组",
-			Category: "常规", RiskLevel: "low", MetricValue: 12.5, MetricUnit: "unit",
-			EffectiveAt: now.Add(0 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "REL-520-01"},
+		{BaseModel: model.BaseModel{Code: "DF-001", Name: "缺陷发现示例一", Status: "verified", Version: 1,
+			Description: "已核验的一般缺陷，桥梁仍在通行，处置建议应为保持观察"}, Facility: "铁路桥梁缺陷处置优先级区域1", Owner: "运行一组",
+			Category: "常规", RiskLevel: "medium", MetricValue: 12.5, MetricUnit: "unit",
+			EffectiveAt: now.Add(0 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "BA-001"},
 
 		{BaseModel: model.BaseModel{Code: "DF-002", Name: "缺陷发现示例二", Status: "verified", Version: 1,
-			Description: "用于启动验证和主要流程演示的缺陷发现记录"}, Facility: "铁路桥梁缺陷处置优先级区域2", Owner: "质量复核组",
-			Category: "重点", RiskLevel: "medium", MetricValue: 25.0, MetricUnit: "%",
-			EffectiveAt: now.Add(3 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "REL-520-02"},
+			Description: "已核验的严重缺陷且桥梁已限行，处置建议应升级为立即处置"}, Facility: "铁路桥梁缺陷处置优先级区域2", Owner: "质量复核组",
+			Category: "重点", RiskLevel: "critical", MetricValue: 25.0, MetricUnit: "%",
+			EffectiveAt: now.Add(3 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "BA-002"},
 
-		{BaseModel: model.BaseModel{Code: "DF-003", Name: "缺陷发现示例三", Status: "monitoring", Version: 1,
-			Description: "用于启动验证和主要流程演示的缺陷发现记录"}, Facility: "铁路桥梁缺陷处置优先级区域3", Owner: "安全主管组",
+		{BaseModel: model.BaseModel{Code: "DF-003", Name: "缺陷发现示例三", Status: "new", Version: 1,
+			Description: "尚未核验的缺陷，且所属检查批次仍在复核中，不得生成建议"}, Facility: "铁路桥梁缺陷处置优先级区域3", Owner: "安全主管组",
 			Category: "复核", RiskLevel: "high", MetricValue: 37.5, MetricUnit: "score",
-			EffectiveAt: now.Add(6 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "REL-520-03"},
+			EffectiveAt: now.Add(6 * time.Hour), Evidence: "已完成基础证据核对", RelatedCode: "BA-003"},
 	}
 	return db.WithContext(ctx).Create(&items).Error
 }
@@ -250,4 +259,21 @@ func seedPriorityDecision(ctx context.Context, db *gorm.DB) error {
 		}
 		return nil
 	})
+}
+
+// seedHandlingAdvice generates demo advice through the real service rule path
+// so snapshots and handling levels can never drift from production logic.
+func seedHandlingAdvice(ctx context.Context, db *gorm.DB) error {
+	var count int64
+	if err := db.WithContext(ctx).Model(&model.DefectHandlingAdvice{}).Count(&count).Error; err != nil || count > 0 {
+		return err
+	}
+	adviceService := service.NewHandlingAdviceService(repository.NewHandlingAdviceRepository(db))
+	for _, defectCode := range []string{"DF-001", "DF-002"} {
+		input := dto.GenerateHandlingAdvice{DefectCode: defectCode, Reason: "启动演示数据：复核员核验后生成处置优先级建议"}
+		if _, _, err := adviceService.VerifyAndGenerate(ctx, input, "reviewer", "seed-"+defectCode+"-verify"); err != nil {
+			return err
+		}
+	}
+	return nil
 }

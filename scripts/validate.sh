@@ -83,6 +83,40 @@ locked_status=$(curl -sS -o /dev/null -w '%{http_code}' -X PUT "http://127.0.0.1
 [ "$locked_status" = "422" ]
 curl -fsS "http://127.0.0.1:${BACKEND_PORT}/api/audit-summary?windowHours=24" -H "Authorization: Bearer $reviewer_token" | jq -e '.data.total >= 3 and .data.transitions >= 1' >/dev/null
 
+# ---- 缺陷处置优先级建议模块 ----
+# 种子数据：DF-001 为一般缺陷（active 桥梁，observe），DF-002 为严重缺陷（restricted 桥梁，urgent）。
+curl -fsS "http://127.0.0.1:${BACKEND_PORT}/api/handling-advices" -H "Authorization: Bearer $viewer_token" | jq -e '
+	(.data | type == "array") and
+	([.data[] | select(.defectCode == "DF-002") | .handlingLevel] == ["urgent"]) and
+	([.data[] | select(.defectCode == "DF-001") | .handlingLevel] == ["observe"])' >/dev/null
+
+advice_id=$(curl -fsS "http://127.0.0.1:${BACKEND_PORT}/api/handling-advices?defectCode=DF-002" -H "Authorization: Bearer $reviewer_token" | jq -er '.data[0].id')
+curl -fsS "http://127.0.0.1:${BACKEND_PORT}/api/handling-advices/$advice_id" -H "Authorization: Bearer $reviewer_token" | jq -e '
+	.data.defectGrade == "severe" and .data.handlingLevel == "urgent" and
+	.data.snapshot.bridgeStatus == "restricted" and
+	.data.snapshot.defectStatus == "verified" and
+	.data.snapshot.inspectionStatus == "completed" and
+	(.data.snapshot.bridgeSnapshot | length > 0) and
+	(.data.snapshot.defectSnapshot | length > 0) and
+	(.data.snapshot.inspectionSnapshot | length > 0)' >/dev/null
+
+# 重复核验只保留一份建议，返回 200 且 requestId/快照保持首版。
+repeat_status=$(curl -sS -o /tmp/advice-repeat.json -w '%{http_code}' -X POST "http://127.0.0.1:${BACKEND_PORT}/api/handling-advices/generate" -H "Authorization: Bearer $reviewer_token" -H 'Content-Type: application/json' -d '{"defectCode":"DF-002","reason":"空卷验收重复核验只留一份"}')
+[ "$repeat_status" = "200" ]
+jq -e --arg id "$advice_id" '.data.id == ($id | tonumber) and .data.requestId == "seed-DF-002-verify" and .data.snapshot.bridgeStatus == "restricted"' /tmp/advice-repeat.json >/dev/null
+curl -fsS "http://127.0.0.1:${BACKEND_PORT}/api/handling-advices?defectCode=DF-002" -H "Authorization: Bearer $reviewer_token" | jq -e '.meta.total == 1' >/dev/null
+
+# 检查未出结论/缺陷未核验：DF-003 所属批次 review 且缺陷 new，必须 422。
+open_status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:${BACKEND_PORT}/api/handling-advices/generate" -H "Authorization: Bearer $reviewer_token" -H 'Content-Type: application/json' -d '{"defectCode":"DF-003","reason":"检查未出结论不应生成建议"}')
+[ "$open_status" = "422" ]
+# operator/viewer 无权触发核验。
+operator_advice_status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:${BACKEND_PORT}/api/handling-advices/generate" -H "Authorization: Bearer $operator_token" -H 'Content-Type: application/json' -d '{"defectCode":"DF-001","reason":"越权核验"}')
+[ "$operator_advice_status" = "403" ]
+viewer_advice_status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:${BACKEND_PORT}/api/handling-advices/generate" -H "Authorization: Bearer $viewer_token" -H 'Content-Type: application/json' -d '{"defectCode":"DF-001","reason":"越权核验"}')
+[ "$viewer_advice_status" = "403" ]
+# overview 汇总包含建议级别分布。
+curl -fsS "http://127.0.0.1:${BACKEND_PORT}/api/overview" -H "Authorization: Bearer $reviewer_token" | jq -e '.data.handlingAdvices.urgent >= 1 and .data.handlingAdvices.observe >= 1' >/dev/null
+
 docker compose ps
 if [ "${KEEP_RUNNING:-0}" = "1" ]; then
 	echo "KEEP_RUNNING=1: containers left running for browser validation"
